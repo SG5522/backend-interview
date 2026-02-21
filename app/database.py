@@ -1,16 +1,12 @@
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
 from typing import AsyncGenerator
-from .models.base import Base
-from .models.user import User
-from .models.post import Post
+from app.core.config import settings
+from .models import Base, User, Post
 
-# 使用 aiosqlite 驅動，sqlite+aiosqlite
-# 如果以後換成 Postgres，只需改這行：postgresql+asyncpg://user:pass@localhost/dbname
-# 上述參考ai得知的
-DATABASE_URL = "sqlite+aiosqlite:///./test.db"
+DATABASE_URL = settings.DATABASE_URL
 
-
+# 等同於Connection Pool
 engine = create_async_engine(DATABASE_URL, echo=True)
 
 # 相似於efcore的 dbcontext 內部模擬做完sql在送到真實db做處理 或是ado 的Transaction Container
