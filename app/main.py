@@ -7,7 +7,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from contextlib import asynccontextmanager
-from app.router import user_router, post_router
+from app.router import user_router, post_router, black_list_router
 from app.models import User, UserRole
 from app.database import async_session_factory, get_db
 from app.core.config import settings
@@ -51,6 +51,7 @@ async def lifespan(app: FastAPI):
                 )
                 session.add(new_admin)
                 await session.commit()
+                await session.close()
                 logging.info("預設管理員建立成功！帳號: admin")
             else:
                 logging.info("管理員帳號已存在，跳過。")
@@ -68,6 +69,7 @@ app = FastAPI(
 
 app.include_router(user_router, prefix="/users", tags=["User"])
 app.include_router(post_router, prefix="/posts", tags=["Post"])
+app.include_router(black_list_router, prefix="/blacklist", tags=["Blacklist"])
 
 # 測試api是否有啟用
 @app.get("/")

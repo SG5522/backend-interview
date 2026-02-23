@@ -13,7 +13,7 @@ router = APIRouter()
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="users/login")
 
-async def get_current_user(db: AsyncSession = Depends(get_db), token: str = Depends(oauth2_scheme)):
+async def get_current_user(db: AsyncSession = Depends(get_db), token: str = Depends(oauth2_scheme)) -> UserPublic: 
         credentials_exception = HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="憑證無效或已過期",
@@ -30,7 +30,7 @@ async def get_current_user(db: AsyncSession = Depends(get_db), token: str = Depe
         user = await UserService.get_user_by_email(email, db)
         if user is None:
                 raise credentials_exception        
-        return user
+        return UserPublic.model_validate(user)
 
 # 登入處理
 @router.post("/login")
@@ -62,7 +62,7 @@ async def create_user_api(user_in: UserCreate, db: AsyncSession = Depends(get_db
         new_user = await UserService.create_user(user_in, db)
         if(new_user is None) :
                 raise HTTPException(
-                        status_code=400, 
+                        status_code=status.HTTP_400_BAD_REQUEST, 
                         detail="該 Email 已經被註冊過了，請使用其他 Email。"
                 )
         return new_user

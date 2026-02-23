@@ -7,7 +7,7 @@ from .models import Base, User, Post
 DATABASE_URL = settings.DATABASE_URL
 
 # 等同於Connection Pool
-engine = create_async_engine(DATABASE_URL, echo=True)
+engine = create_async_engine(DATABASE_URL, echo=settings.DEBUG_MODE)
 
 # 相似於efcore的 dbcontext 內部模擬做完sql在送到真實db做處理 或是ado 的Transaction Container
 # 扮演 Unit of Work (工作單元) 角色，內部追蹤物件狀態，最後再統一 Flush/Commit 到真實 DB。

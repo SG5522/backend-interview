@@ -1,3 +1,4 @@
+import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.user import User
@@ -36,6 +37,12 @@ class UserService:
         if not SecurityHelper.verify_password(obj_in.password, user.password): 
             return None # 密碼錯了            
         return user #驗證完成回傳user
+    
+    # 依照userId尋找user
+    @staticmethod
+    async def get_user_by_id(id:uuid.UUID, db:AsyncSession):        
+        result = await db.execute(select(User).where(User.id == id))
+        return result.scalar_one_or_none()
         
     # 依照email尋找user
     @staticmethod

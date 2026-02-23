@@ -16,10 +16,7 @@ class Post(Base):
         UUID(as_uuid=True), 
         primary_key=True, 
         default=uuid.uuid4
-    )
-    
-    # 標題
-    title: Mapped[str | None]= mapped_column(String(255), nullable=True)
+    )    
     
     # 內文
     content: Mapped[str] = mapped_column(Text, nullable=False)

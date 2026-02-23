@@ -1,23 +1,9 @@
 import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, exists, case
+from sqlalchemy import select, not_
+from sqlalchemy.orm import selectinload
 from app.models import Post, Like, Blacklist
 from app.schemas.post import PostCreate, PostEdit, PostPublic
-
-# 過濾黑名單的user與被黑名單的User貼文    
-def get_blocked_filter(user_id: uuid.UUID):
-        return ~exists().where(
-            Blacklist.user_id == user_id, 
-            Blacklist.blocked_user_id == Post.owner_id
-        )
-
-# 確認是否點讚    
-def get_is_liked_expr(user_id: uuid.UUID):
-    return (
-        select(Like.post_id)
-        .where(Like.post_id == Post.id, Like.user_id == user_id)
-        .scalar_subquery()
-    )
 
 class PostService:    
     @staticmethod
@@ -25,26 +11,71 @@ class PostService:
         """
         建立新貼文 or 回覆    
         """
-        db_obj = Post(
-            title=obj_in.title,
+        db_obj = Post(            
             content=obj_in.content,
             parent_id=obj_in.parent_id, # 如果是 None 就是發文，有值就是留言
-            user_id=user_id
+            owner_id=user_id
         )
         db.add(db_obj)
-        await db.commit()        
+        await db.commit()
+        await db.refresh(db_obj, attribute_names=["id", "createdDateTime"])
         return db_obj
+    
+    @staticmethod
+    async def get_by_id(db: AsyncSession, post_id: uuid.UUID, current_user_id: uuid.UUID):
+        # 💡 重點：一次抓出貼文 + 按讚名單 + 發文者 + 回覆
+        query = (
+            select(Post)
+            .options(
+                selectinload(Post.liked_by_users),  # 抓出按讚名單
+                selectinload(Post.user),           # 抓出發文者(owner)
+                selectinload(Post.replies)         # 抓出子貼文(留言)
+            )
+            .where(Post.id == post_id)
+        )
+        
+        result = await db.execute(query)
+        p = result.scalar_one_or_none()
+        
+        if not p:
+            return None
+
+        # 轉成 Pydantic Schema 回傳
+        return PostPublic(
+            id=p.id,            
+            content=p.content,
+            owner_id=p.owner_id,
+            createdDateTime=p.createdDateTime,
+            updatedDateTime=p.updatedDateTime,
+            parent_id=p.parent_id,
+            likes_count=len(p.liked_by_users),
+            is_liked=any(user.id == current_user_id for user in p.liked_by_users),
+            owner=p.user,  
+            top_comment=None, 
+            replies=p.replies
+        )
 
     @staticmethod
     async def get_multi(db: AsyncSession, current_user_id: uuid.UUID, skip: int = 0, limit: int = 20):
         '''
-        搜尋貼文預計到20篇
-        '''    
-
+        依skip、limit搜尋貼文內容
+        '''        
+        # 找出黑名單
+        blacklist_subquery = (
+            select(Blacklist.blocked_user_id)
+            .where(Blacklist.user_id == current_user_id)
+        ).scalar_subquery()
+        
         query = (
             select(Post)
-            .where(Post.parent_id == None)
-            .order_by(Post.createdDateTime.desc())
+            .options(
+                selectinload(Post.liked_by_users),
+                selectinload(Post.user)                
+            ) 
+            .where(
+                Post.parent_id == None,
+                not_(Post.owner_id.in_(blacklist_subquery))
+            )
             .offset(skip)
             .limit(limit)
         )
@@ -55,15 +86,15 @@ class PostService:
     
         return [
             PostPublic(
-                id=p.id,
-                title=p.title,
+                id=p.id,                
                 content=p.content,
                 owner_id=p.owner_id,
                 createdDateTime=p.createdDateTime,
                 updatedDateTime=p.updatedDateTime,
-                parent_id=p.parent_id,
-                # 💡 關鍵：強制把會觸發 Lazy Load 的地方設為 None 或空列表
-                owner=None, 
+                parent_id=p.parent_id,      
+                likes_count=len(p.liked_by_users),
+                is_liked=any(user.id == current_user_id for user in p.liked_by_users),          
+                owner=p.user,                 
                 top_comment=None,
                 replies=[],     
             ) for p in posts
