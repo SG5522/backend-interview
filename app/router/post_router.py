@@ -7,6 +7,7 @@ from app.models import User
 from app.service.post_service import PostService
 from app.schemas.post import PostPublic, PostCreate
 from app.schemas.user import UserPublic 
+from app.service.black_list_service import BlacklistService
 from app.router.user_router import get_current_user
 
 
@@ -64,7 +65,18 @@ async def create_new_post(
         parent_post = await PostService.get_by_id(db, post_in.parent_id, current_user.id)
         if not parent_post:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="你要回覆的貼文不存在")
+            
+    is_blocked = await BlacklistService.is_blocked(
+            user_id=parent_post.owner_id, 
+            blocked_user_id=current_user.id, 
+            db=db
+    )
     
+    if is_blocked:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, 
+                detail="你已被封鎖，無法回覆其貼文"
+            )
     # 這裡呼叫 Service 建立資料，並強制綁定當前登入者 ID
     new_post = await PostService.create_post(
         db=db, 
@@ -73,15 +85,34 @@ async def create_new_post(
     )
     return new_post
 
+@router.post("/{post_id}/top-comment")
+async def set_post_top_Comment(
+    post_id: uuid.UUID,
+    comment_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserPublic = Depends(get_current_user)
+):
+    if not await PostService.check_post(db, post_id):    
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="貼文不存在")
+    
+    if not await PostService.is_comment_belong_to_post(db, post_id, comment_id):    
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="該回覆貼文不屬於此貼文，或是不存在")
+    
+    success = await PostService.set_top_comment(db, post_id, current_user.id, comment_id)
+    
+    if not success:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="無權置頂或留言不屬於此貼文")
+    
+    return {"status": status.HTTP_200_OK}
+
 @router.post("/{post_id}/like")
 async def toggle_post_like(
     post_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: UserPublic = Depends(get_current_user)
 ):
-    post = await PostService.get_by_id(db, post_id, current_user.id)
-    if not post:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="貼文不存在，無法點讚")
+    if not await PostService.check_post(db, post_id):    
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="貼文不存在")
     
     liked = await PostService.toggle_like(db, post_id, current_user.id)
     return {"status": status.HTTP_200_OK, "is_liked": liked}

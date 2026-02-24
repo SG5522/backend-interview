@@ -14,7 +14,7 @@ class PostCreate(PostBase):
 
 # 編譯貼文
 class PostEdit(BaseModel):    
-    content: str | None = Field(None, max_length=4096, description="欲修改的內容，不修改則傳 null")
+    content: str | None = Field(None, max_length=4096, description="欲修改的內容，不修改則傳 null")    
 
 # 基本貼文內容(不含回覆)
 class PostSimple(PostBase):

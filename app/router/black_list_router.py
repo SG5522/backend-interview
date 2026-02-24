@@ -30,7 +30,7 @@ async def block_user(
     
     # 是否已在黑名單
     if await BlacklistService.is_blocked(current_user.id, target_user_id, db):
-        return {"message": "已在黑名單中"}
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="已在黑名單中")        
     
     await BlacklistService.block_user(
         user_id=current_user.id, 

@@ -1,5 +1,4 @@
-import logging
-import os
+import logging, os, asyncio
 from alembic.config import Config
 from alembic import command
 from fastapi import FastAPI, Depends
@@ -23,17 +22,20 @@ async def lifespan(app: FastAPI):
     logging.info("正在檢查資料庫遷移...")
     try:
         # 取得ini檔的絕對路徑
-        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        ini_path = os.path.join(root_dir, "alembic.ini")
-        alembic_cfg = Config(ini_path)
-        
-        # 手動指定 script_location 的絕對路徑
-        alembic_cfg.set_main_option("script_location", os.path.join(root_dir, "alembic"))
+        def run_upgrade():
+            root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            ini_path = os.path.join(root_dir, "alembic.ini")
+            alembic_cfg = Config(ini_path)
+            
+            # 手動指定 script_location 的絕對路徑
+            alembic_cfg.set_main_option("script_location", os.path.join(root_dir, "alembic"))
 
-        # 設定Alembic連線字串
-        alembic_cfg.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
-        # 執行 upgrade head
-        command.upgrade(alembic_cfg, "head")
+            # 設定Alembic連線字串
+            alembic_cfg.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+            # 執行 upgrade head
+            command.upgrade(alembic_cfg, "head")
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, run_upgrade)
         logging.info("資料庫遷移完成！")
 
         async with async_session_factory() as session:
