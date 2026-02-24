@@ -22,9 +22,10 @@ class PostSimple(PostBase):
     貼文基本內容
     """
     id: uuid.UUID = Field(description="貼文識別碼 (UUID)")    
-    owner_id: uuid.UUID = Field(description="發文者的user ID")
+    # owner_id: uuid.UUID = Field(description="發文者的user ID")
+    owner: UserPublic | None = Field(None, description="發文者的詳細公開資訊")
     createdDateTime: datetime = Field(description="貼文識別碼 (UUID)")
-    model_config = ConfigDict(from_attributes=True)    
+    model_config = ConfigDict(from_attributes=True)
 
 # 回傳給前端用的 (輸出)
 class PostPublic(PostSimple):
@@ -32,7 +33,7 @@ class PostPublic(PostSimple):
     貼文公開資訊回傳格式，包含作者資訊、上層貼文id、置頂貼文及按讚統計。
     """
     updatedDateTime: datetime = Field(description="最後更新時間")       
-    owner: UserPublic | None = Field(None, description="發文者的詳細公開資訊")
+    
     # 上層貼文id
     parent_id: Optional[uuid.UUID] = Field(None, description="上層貼文id")
     # 置頂貼文

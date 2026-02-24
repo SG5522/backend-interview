@@ -47,8 +47,8 @@ class PostService:
             .options(
                 selectinload(Post.liked_by_users),  # 抓出按讚名單
                 selectinload(Post.user),           # 抓出發文者(owner)
-                selectinload(Post.replies),         # 抓出子貼文(留言)
-                selectinload(Post.top_comment)       # 抓出置頂留言
+                selectinload(Post.replies).selectinload(Post.user),         # 抓出子貼文(留言)
+                selectinload(Post.top_comment).selectinload(Post.user)       # 抓出置頂留言
             )
             .where(Post.id == post_id)
         )
@@ -63,7 +63,7 @@ class PostService:
         return PostPublic(
             id=p.id,            
             content=p.content,
-            owner_id=p.owner_id,
+            owner_id=p.owner_id,            
             createdDateTime=p.createdDateTime,
             updatedDateTime=p.updatedDateTime,
             parent_id=p.parent_id,
