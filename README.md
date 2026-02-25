@@ -1,68 +1,59 @@
-# **社群平台開發測驗 \- 作答說明**
+# 社群平台開發測驗
 
-## **📋 測驗概述**
+## 使用工具
+- **Language:** Python 3.12
+- **Framework:** FastAPI (Asynchronous)
+- **Database:** SQLite (使用 SQLAlchemy + aiosqlite)
+- **Authentication:** JWT (OAuth2 Password Bearer)
 
-請使用 Python \+ FastAPI 開發一個簡易社群平台的後端 API，實作使用者系統、發文、互動及黑名單等功能。
+##  啟動前的安裝需知
 
-## **🚀 專案準備**
+##  安裝 Python 
+1. **下載版本**：[Python 3.12.10 官方下載](https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe)。
+2. **安裝設定**：
+   -  務必勾選 **"Add Python to PATH"**。
+   -  選擇 **"Install Now"**。
+3. **驗證指令**（開啟新 PowerShell）：
+   ```powershell
+   python --version  # 預期輸出: Python 3.12.10
+   pip --version     # 預期輸出: pip 24.x.x
+   ```
 
-1. 前往我們的 GitHub 測驗專案：**`https://github.com/OsenseTech/backend-interview`**  
-2. Fork 此專案到你的個人 GitHub 帳號  
-3. 在你 fork 的專案中進行開發
+##  建立專案虛擬環境
+1. **進入專案目錄**：cd C:\你的專案路徑
 
-## **📝 功能需求**
+2. **建立 venv**：python -m venv venv
 
-1. **使用者系統**：實作註冊和登入功能  
-2. **發文功能**：登入後可以發表貼文（Post），所有使用者都能瀏覽  
-3. **互動功能**：  
-   1. 對貼文按讚（Like）和留言（Comment）  
-   2. 支援巢狀留言：可以針對任何留言再留言  
-   3. 所有層級的留言都可以被按讚和回覆  
-4. **置頂留言**：貼文擁有者可以設定一則置頂留言（Top Comment）  
-5. **黑名單功能**：使用者可以設定黑名單（Black List）  
-   被加入黑名單的人將無法：  
-   1. 看到該使用者的貼文  
-   2. 對該使用者的貼文或留言按讚或留言
+3. **啟動環境：**.\venv\Scripts\activate.ps1
+   - **結果**：命令列左側出現 (venv) 字樣。
 
-## **🛠️ 技術要求**
 
-* **必須使用**：Python3.12 up \+ FastAPI 框架  
-* **必須採用**：async/await 非同步方式實作 API  
-* **資料庫**：不限，可自由選擇
+## 安裝本專案的3rd Party套件
 
-## **📖 名詞對照**
+**安裝套件**：pip install -r requirements.txt
+   - 如要更新套件輸入 1. pip freeze > requirements.txt
 
-* Post \= 貼文  
-* Like \= 按讚  
-* Comment \= 留言  
-* Top Comment \= 置頂留言  
-* Owner \= 擁有者  
-* Black List \= 黑名單
+## 設定.env檔
 
-## **📦 提交方式**
+1. **複製檔案**: 將專案的.env.example複製貼上，重新命名為.env
+2. **修改SECRET_KEY內容**: 隨機產生SECRET_KEY輸入
+   ```
+   python -c "import secrets; print(secrets.token_urlsafe(32))"
+   ```
+   - 最後將產生的參數放入SECRET_KEY
 
-完成開發後，請確保：
+## 資料庫初始化
+本專案採用自動化建構機制：
+- **自動建構**：啟動 FastAPI Server 時，系統會自動檢查並根據最新遷移內容建構 SQLite 資料庫
 
-1. 程式碼已推送到你 fork 的 GitHub 專案  
-2. 專案權限設定：將專案設定為 Public  
-3. 回覆專案連結給我們：  
-   1. 📧 Email：kang700525@osensetech.com  
-   2. 或透過原招募管道回覆
+## 🛠️ 開發與資料庫維護 (Alembic)
+雖然系統啟動時會自動建構資料表，但若您需要進行 Schema 修改，可參考以下指令：
 
-**專案連結格式**：
-
-| https://github.com/你的帳號/專案名稱 |
-| :---- |
-
-## **📌 注意事項**
-
-* 這是功能實作測驗，重點在於展示 FastAPI 的使用和核心功能的實現  
-* 不需要過度考量生產環境的複雜性
-
-## **❓ 問題諮詢**
-
-如有任何疑問，歡迎透過以下方式聯繫：
-
-* 📧 Email：kang700525@osensetech.com
-
-祝你開發順利！🎉
+1. **產生遷移腳本**：
+   ```powershell
+   alembic revision --autogenerate -m "描述變更內容" 
+   ```  
+2. **萬一DB無法遷移(由其在sqlite環境)**：請刪除所有versions的內容，刪除DB後，並重新產生初始化的遷移腳本
+   ```powershell
+   alembic revision --autogenerate -m "init"
+   ```
