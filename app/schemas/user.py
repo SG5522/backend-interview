@@ -23,5 +23,8 @@ class UserUpdate(BaseModel):
 class UserPublic(UserBase):
     id: uuid.UUID
     name: str | None = None
-    role: UserRole = UserRole.USER
+    role: UserRole = Field(
+        UserRole.USER, 
+        description="角色權限: 0=管理員, 1=一般用戶, 2=訪客"
+    )
     model_config = ConfigDict(from_attributes=True)

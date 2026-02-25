@@ -38,12 +38,12 @@ class Post(Base):
     parent: Mapped[Optional["Post"]] = relationship(
         "Post",
         foreign_keys=[parent_id], # 明確指定使用parent_id
-        back_populates="replies",
+        back_populates="comments",
         remote_side="Post.id" 
     )
 
     # 取得子項目清單 (指向下層的 List)
-    replies: Mapped[list["Post"]] = relationship(
+    comments: Mapped[list["Post"]] = relationship(
         "Post",
         foreign_keys=[parent_id], # 明確指定使用parent_id 
         back_populates="parent",

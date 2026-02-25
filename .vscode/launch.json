@@ -14,7 +14,7 @@
                 "dev",
                 "app/main.py",
                 "--port",
-                "50880"               
+                "40880"               
             ],
             "jinja": true,
             "justMyCode": true

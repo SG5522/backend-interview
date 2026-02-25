@@ -2,7 +2,10 @@ import jwt
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core import errors
 from app.database import get_db
+from app.models.user import UserRole
 from app.schemas.user import UserCreate, UserLogin, UserPublic
 from app.service.user_service import UserService
 from app.core.security import SecurityHelper
@@ -14,11 +17,7 @@ router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="users/login")
 
 async def get_current_user(db: AsyncSession = Depends(get_db), token: str = Depends(oauth2_scheme)) -> UserPublic: 
-        credentials_exception = HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="憑證無效或已過期",
-                headers={"WWW-Authenticate": "Bearer"},
-        )
+        credentials_exception = errors.AuthErrors.InvalidToken()
         try:
                 # 解碼 Token
                 payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
@@ -35,36 +34,36 @@ async def get_current_user(db: AsyncSession = Depends(get_db), token: str = Depe
 # 登入處理
 @router.post("/login")
 async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):    
-    user_in = UserLogin(
-        email=form_data.username, 
-        password=form_data.password
-    )
-    user = await UserService.authenticate_user(user_in, db)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="帳號或密碼錯誤"
-        )    
-    # 驗證成功，發放 Token
-    access_token = SecurityHelper.create_access_token(data={"sub": user.email})
-    return {"access_token": access_token, "token_type": "bearer"}
+        user_in = UserLogin(
+                email=form_data.username, 
+                password=form_data.password
+        )
+        user = await UserService.authenticate_user(user_in, db)
+        if not user:
+                raise errors.UserErrors.InvalidCredentials()
+
+        # 驗證成功，發放 Token
+        access_token = SecurityHelper.create_access_token(data={"sub": user.email})
+        return {"access_token": access_token, "token_type": "bearer"}
 
 
 # 確認是否登入
 @router.get("/me", response_model=UserPublic)
 async def get_my_info(current_user = Depends(get_current_user)):    
-    return current_user
+        return current_user
 
+@router.get("/", response_model=list[UserPublic])
+async def get_users(name: str = None, skip: int = 0, limit: int = 20, db: AsyncSession = Depends(get_db), current_user: UserPublic = Depends(get_current_user)):
+        if current_user.role != UserRole.ADMIN:        
+                raise errors.AuthErrors.AccessDenied()
+        return await UserService.get_users(db, name, skip, limit)
 
 # 建立User
 @router.post("/create")
 async def create_user_api(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
         new_user = await UserService.create_user(user_in, db)
-        if(new_user is None) :
-                raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST, 
-                        detail="該 Email 已經被註冊過了，請使用其他 Email。"
-                )
+        if new_user is None:
+                raise errors.UserErrors.AlreadyExists()
         return new_user
 
     

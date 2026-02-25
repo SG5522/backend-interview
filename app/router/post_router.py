@@ -1,11 +1,11 @@
 import uuid
-from fastapi import APIRouter, Depends, Query, HTTPException, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import errors
 from app.database import get_db
-from app.models import User
 from app.service.post_service import PostService
-from app.schemas.post import PostPublic, PostCreate
+from app.schemas.post import PostPublic, PostCreate, PostSimple
 from app.schemas.user import UserPublic 
 from app.service.black_list_service import BlacklistService
 from app.router.user_router import get_current_user
@@ -13,25 +13,27 @@ from app.router.user_router import get_current_user
 
 router = APIRouter()
 
-@router.get("/{post_id}/", response_model=PostPublic)
+@router.get("/{post_id}/", response_model=PostPublic, summary="透過 post_id 取得貼文內容")
 async def get_by_id(
     post_id: uuid.UUID,    
     db: AsyncSession = Depends(get_db),
     current_user : UserPublic = Depends(get_current_user) 
 ):
     """
-    從post_id獲取貼文內容
+    從post_id取得貼文內容
+    內容包含：貼文者資訊、點讚數、點讚狀態、置頂留言以及所有回覆列表。
     """
-    post = await PostService.get_by_id(
-        db=db,
-        post_id=post_id, 
-        current_user_id=current_user.id, 
-    )
-    if not post:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="找不到該貼文")    
-    return post
+    if not await PostService.check_post(db, post_id):
+        raise errors.PostErrors.NotFound()
+    
+    owner_id = await PostService.get_owner_id(db, post_id)
+    
+    if await BlacklistService.is_blocked(owner_id, current_user.id , db):
+        raise errors.PostErrors.Blocked()
+    
+    return await PostService.get_by_id(db, post_id, current_user.id)    
 
-@router.get("/", response_model=list[PostPublic])
+@router.get("/", response_model=list[PostSimple], summary="取得貼文列表")
 async def get_post_feed(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
@@ -40,17 +42,13 @@ async def get_post_feed(
     current_user : UserPublic = Depends(get_current_user) 
 ):
     """
-    獲取Post
+    分頁取得主貼文列表。
+    1. 僅回傳 parent_id 為 null 的主貼文。
+    2. 自動排除黑名單用戶的內容。
     """
-    posts = await PostService.get_multi(
-        db=db,
-        current_user_id=current_user.id, 
-        skip=skip,
-        limit=limit
-    )
-    return posts
+    return await PostService.get_posts(db, current_user.id, skip, limit)    
 
-@router.post("/create", status_code=status.HTTP_201_CREATED)
+@router.post("/create", status_code=status.HTTP_201_CREATED, summary="建立新貼文")
 async def create_new_post(
     post_in: PostCreate,
     db: AsyncSession = Depends(get_db),
@@ -64,55 +62,50 @@ async def create_new_post(
     if post_in.parent_id:
         parent_post = await PostService.get_by_id(db, post_in.parent_id, current_user.id)
         if not parent_post:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="你要回覆的貼文不存在")
+            raise errors.PostErrors.NotFound()
             
-    is_blocked = await BlacklistService.is_blocked(
-            user_id=parent_post.owner_id, 
-            blocked_user_id=current_user.id, 
-            db=db
-    )
+        is_blocked = await BlacklistService.is_blocked(parent_post.owner.id, current_user.id, db)
     
-    if is_blocked:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, 
-                detail="你已被封鎖，無法回覆其貼文"
-            )
-    # 這裡呼叫 Service 建立資料，並強制綁定當前登入者 ID
-    new_post = await PostService.create_post(
-        db=db, 
-        obj_in=post_in, 
-        user_id=current_user.id
-    )
-    return new_post
+        if is_blocked:
+            raise errors.PostErrors.Blocked()
+    return await PostService.create_post(db, post_in, user_id=current_user.id)    
 
-@router.post("/{post_id}/top-comment")
+@router.post("/{post_id}/top-comment", summary="置頂留言")
 async def set_post_top_Comment(
     post_id: uuid.UUID,
     comment_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: UserPublic = Depends(get_current_user)
 ):
+    """
+    將指定的回覆（comment_id）設為該貼文（post_id）的置頂留言。
+    只有貼文作者本人可以執行此操作。
+    """
     if not await PostService.check_post(db, post_id):    
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="貼文不存在")
+        raise errors.PostErrors.NotFound()
     
-    if not await PostService.is_comment_belong_to_post(db, post_id, comment_id):    
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="該回覆貼文不屬於此貼文，或是不存在")
+    if not await PostService.is_comment_belong_to_post(db, post_id, comment_id):            
+        raise errors.CommentErrors.NotBelongToPost()        
     
     success = await PostService.set_top_comment(db, post_id, current_user.id, comment_id)
     
-    if not success:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="無權置頂或留言不屬於此貼文")
+    if not success:        
+        raise errors.PostErrors.NotOwner()        
     
     return {"status": status.HTTP_200_OK}
 
-@router.post("/{post_id}/like")
+@router.post("/{post_id}/like", summary="按讚貼文")
 async def toggle_post_like(
     post_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: UserPublic = Depends(get_current_user)
 ):
+    """    
+    切換按讚狀態。
+    若未按讚則執行按讚；若已按讚則取消按讚。
+    """
     if not await PostService.check_post(db, post_id):    
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="貼文不存在")
+        raise errors.PostErrors.NotFound()
     
     liked = await PostService.toggle_like(db, post_id, current_user.id)
     return {"status": status.HTTP_200_OK, "is_liked": liked}

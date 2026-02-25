@@ -7,10 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from contextlib import asynccontextmanager
 from app.router import user_router, post_router, black_list_router
-from app.models import User, UserRole
-from app.database import async_session_factory, get_db
+from app.database import DatabaseInitializer, get_db 
 from app.core.config import settings
-from app.core.security import SecurityHelper
 
 # tokenUrl 登入 API 地址
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="users/login")
@@ -37,26 +35,8 @@ async def lifespan(app: FastAPI):
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, run_upgrade)
         logging.info("資料庫遷移完成！")
-
-        async with async_session_factory() as session:
-        # 檢查是否已經有任何使用者 (或特定檢查 admin)
-            result = await session.execute(select(User).where(User.name == "admin"))
-            admin_user = result.scalar_one_or_none()
-
-            if not admin_user:
-                print("偵測到系統無管理員，正在建立預設 Admin...")
-                new_admin = User(
-                    name="admin",
-                    email="admin@example.com",
-                    password=SecurityHelper.get_password_hash("1qaz@WSX"), # 暫時密碼
-                    role=UserRole.ADMIN
-                )
-                session.add(new_admin)
-                await session.commit()
-                await session.close()
-                logging.info("預設管理員建立成功！帳號: admin")
-            else:
-                logging.info("管理員帳號已存在，跳過。")
+        await DatabaseInitializer.seed_all()
+        logging.info("資料庫初始化完成！")        
     except Exception as e:
         logging.error(f"資料庫遷移失敗: {e}")    
     yield

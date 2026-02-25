@@ -1,9 +1,10 @@
 import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, not_
-from sqlalchemy.orm import selectinload, joinedload
-from app.models import Post, Like, Blacklist
-from app.schemas.post import PostCreate, PostEdit, PostPublic
+from sqlalchemy.orm import selectinload
+from app.models import Post, Like
+from app.schemas.post import PostCreate, PostPublic, PostSimple
+from app.service.black_list_service import BlacklistService
 
 class PostService:    
     @staticmethod
@@ -40,14 +41,15 @@ class PostService:
         return result.rowcount > 0
     
     @staticmethod
-    async def get_by_id(db: AsyncSession, post_id: uuid.UUID, current_user_id: uuid.UUID):
-        # 💡 重點：一次抓出貼文 + 按讚名單 + 發文者 + 回覆
+    async def get_by_id(db: AsyncSession, post_id: uuid.UUID, current_user_id: uuid.UUID):             
+        blocked_ids = await BlacklistService.get_blocked_ids(current_user_id, db)
+                           
         query = (
             select(Post)
             .options(
                 selectinload(Post.liked_by_users),  # 抓出按讚名單
                 selectinload(Post.user),           # 抓出發文者(owner)
-                selectinload(Post.replies).selectinload(Post.user),         # 抓出子貼文(留言)
+                selectinload(Post.comments).selectinload(Post.user),         # 抓出子貼文(留言)
                 selectinload(Post.top_comment).selectinload(Post.user)       # 抓出置頂留言
             )
             .where(Post.id == post_id)
@@ -58,20 +60,23 @@ class PostService:
         
         if not p:
             return None
+                    
+        final_top_comment = None
+        if p.top_comment and p.top_comment.owner_id not in blocked_ids:
+            final_top_comment = PostSimple.model_validate(p.top_comment)
 
         # 轉成 Pydantic Schema 回傳
         return PostPublic(
             id=p.id,            
-            content=p.content,
-            owner_id=p.owner_id,            
+            content=p.content,            
             createdDateTime=p.createdDateTime,
             updatedDateTime=p.updatedDateTime,
             parent_id=p.parent_id,
             likes_count=len(p.liked_by_users),
             is_liked=any(user.id == current_user_id for user in p.liked_by_users),
-            owner=p.user,  
-            top_comment=p.top_comment if p.top_comment else None,
-            replies=[r for r in p.replies if r.id != p.top_comment_id] #目前找不到更適合的方式用SQL過濾暫時由輸出時來過濾
+            owner=p.user,              
+            top_comment=final_top_comment,            
+            comment=[PostSimple.model_validate(r) for r in p.comments if r.id != p.top_comment_id and r.owner_id not in blocked_ids] #目前找不到更適合的方式用SQL過濾暫時由輸出時來過濾
         )     
         
     #確認是否有該筆post
@@ -80,7 +85,17 @@ class PostService:
         result = await db.execute(
             select(Post.id).where(Post.id == post_id)
         )
-        return result.first() is not None    
+        return result.first() is not None            
+
+    @staticmethod
+    async def get_owner_id(db: AsyncSession, post_id: uuid.UUID) -> uuid.UUID | None:
+        """
+        取得貼文作者 ID，用於權限或黑名單校驗
+        """
+        result = await db.execute(
+            select(Post.owner_id).where(Post.id == post_id)
+        )
+        return result.scalar()
     
     @staticmethod
     async def is_comment_belong_to_post(db: AsyncSession, post_id: uuid.UUID, comment_id: uuid.UUID) -> bool:
@@ -92,15 +107,13 @@ class PostService:
         return result.scalar_one_or_none() is not None
 
     @staticmethod
-    async def get_multi(db: AsyncSession, current_user_id: uuid.UUID, skip: int = 0, limit: int = 20):
+    async def get_posts(db: AsyncSession, current_user_id: uuid.UUID, skip: int = 0, limit: int = 20):
         """
         依skip、limit搜尋貼文內容
         """        
+        
         # 找出黑名單
-        blacklist_subquery = (
-            select(Blacklist.blocked_user_id)
-            .where(Blacklist.user_id == current_user_id)
-        ).scalar_subquery()
+        blocked_ids = await BlacklistService.get_blocked_ids(current_user_id, db)
         
         query = (
             select(Post)
@@ -110,7 +123,7 @@ class PostService:
             ) 
             .where(
                 Post.parent_id == None,
-                not_(Post.owner_id.in_(blacklist_subquery))
+                not_(Post.owner_id.in_(blocked_ids))
             )
             .offset(skip)
             .limit(limit)
@@ -121,18 +134,13 @@ class PostService:
         posts = result.scalars().all() # 這裡拿到的是 Post 物件列表
     
         return [
-            PostPublic(
+            PostSimple(
                 id=p.id,                
                 content=p.content,
-                owner_id=p.owner_id,
-                createdDateTime=p.createdDateTime,
-                updatedDateTime=p.updatedDateTime,
-                parent_id=p.parent_id,      
+                owner=p.user,
+                createdDateTime=p.createdDateTime,                  
                 likes_count=len(p.liked_by_users),
-                is_liked=any(user.id == current_user_id for user in p.liked_by_users),          
-                owner=p.user,                 
-                top_comment=None,
-                replies=[],     
+                is_liked=any(user.id == current_user_id for user in p.liked_by_users)  
             ) for p in posts
         ]
 

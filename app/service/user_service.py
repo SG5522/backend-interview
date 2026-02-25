@@ -2,7 +2,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.user import User
-from app.schemas.user import UserCreate
+from app.schemas.user import UserCreate, UserPublic
 from app.core.security import SecurityHelper
 
 class UserService:
@@ -49,6 +49,15 @@ class UserService:
     async def get_user_by_email(email:str, db:AsyncSession):        
         result = await db.execute(select(User).where(User.email == email))
         return result.scalars().first()
+    
+    @staticmethod
+    async def get_users(db:AsyncSession, name:str = None, skip: int = 0, limit: int = 20) -> list[UserPublic]:
+        query = select(User)
+        if name:
+            query = query.where(User.name.icontains(name))
+        result = await db.execute(query.order_by(User.createdDateTime.desc()).offset(skip).limit(limit))
+        return [UserPublic.model_validate(u) for u in result.scalars().all()]
+
     
     # 確認是否有相同的信件
     @staticmethod
